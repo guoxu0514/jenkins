@@ -1,8 +1,14 @@
 package hudson.model;
 
-import hudson.Functions;
+import static org.junit.Assert.assertTrue;
+
+import com.gargoylesoftware.htmlunit.WebResponseListener;
+import com.gargoylesoftware.htmlunit.html.DomNodeUtil;
+import com.gargoylesoftware.htmlunit.html.HtmlElementUtil;
 import hudson.tasks.BuildStepMonitor;
-import org.jvnet.hudson.test.HudsonTestCase;
+import org.junit.Assert;
+import org.junit.Rule;
+import org.junit.Test;
 import com.gargoylesoftware.htmlunit.html.HtmlPage;
 import com.gargoylesoftware.htmlunit.html.HtmlAnchor;
 
@@ -10,43 +16,57 @@ import java.util.List;
 
 import hudson.tasks.Publisher;
 import hudson.tasks.BuildStepDescriptor;
-import hudson.tasks.Builder;
 import hudson.model.HelpLinkTest.HelpNotFoundBuilder.DescriptorImpl;
+import org.jvnet.hudson.test.JenkinsRule;
 
 /**
  * Click all the help links and make sure they resolve to some text, not 404.
  *
  * @author Kohsuke Kawaguchi
  */
-public class HelpLinkTest extends HudsonTestCase {
-    public void testSystemConfig() throws Exception {
-        clickAllHelpLinks(new WebClient().goTo("configure"));
+public class HelpLinkTest {
+
+    @Rule
+    public JenkinsRule j = new JenkinsRule();
+
+    @Test
+    public void systemConfig() throws Exception {
+        clickAllHelpLinks(j.createWebClient().goTo("configure"));
     }
 
-    public void testFreestyleConfig() throws Exception {
-        clickAllHelpLinks(createFreeStyleProject());
+    @Test
+    public void freestyleConfig() throws Exception {
+        clickAllHelpLinks(j.createFreeStyleProject());
     }
 
-    public void testMavenConfig() throws Exception {
-        clickAllHelpLinks(createMavenProject());
+    @Test
+    public void mavenConfig() throws Exception {
+        clickAllHelpLinks(j.createMavenProject());
     }
 
-    public void testMatrixConfig() throws Exception {
-        clickAllHelpLinks(createMatrixProject());
+    @Test
+    public void matrixConfig() throws Exception {
+        clickAllHelpLinks(j.createMatrixProject());
     }
 
-    private void clickAllHelpLinks(AbstractProject j) throws Exception {
+    private void clickAllHelpLinks(AbstractProject p) throws Exception {
         // TODO: how do we add all the builders and publishers so that we can test this meaningfully?
-        clickAllHelpLinks(new WebClient().getPage(j, "configure"));
+        clickAllHelpLinks(j.createWebClient(), p);
+    }
+
+    private void clickAllHelpLinks(JenkinsRule.WebClient webClient, AbstractProject p) throws Exception {
+        // TODO: how do we add all the builders and publishers so that we can test this meaningfully?
+        clickAllHelpLinks(webClient.getPage(p, "configure"));
     }
 
     private void clickAllHelpLinks(HtmlPage p) throws Exception {
-        List<?> helpLinks = p.selectNodes("//a[@class='help-button']");
+        List<?> helpLinks = DomNodeUtil.selectNodes(p, "//a[@class='help-button']");
         assertTrue(helpLinks.size()>0);
         System.out.println("Clicking "+helpLinks.size()+" help links");
 
-        for (HtmlAnchor helpLink : (List<HtmlAnchor>)helpLinks)
-            helpLink.click();
+        for (HtmlAnchor helpLink : (List<HtmlAnchor>)helpLinks) {
+            HtmlElementUtil.click(helpLink);
+        }
     }
 
     public static class HelpNotFoundBuilder extends Publisher {
@@ -74,19 +94,22 @@ public class HelpLinkTest extends HudsonTestCase {
      * Make sure that this test is meaningful.
      * Intentionally put 404 and verify that it's detected.
      */
-    public void testNegative() throws Exception {
+    @Test
+    public void negative() throws Exception {
         DescriptorImpl d = new DescriptorImpl();
         Publisher.all().add(d);
         try {
-            FreeStyleProject p = createFreeStyleProject();
+            FreeStyleProject p = j.createFreeStyleProject();
             p.getPublishersList().add(new HelpNotFoundBuilder());
-            clickAllHelpLinks(p);
-            fail("should detect a failure");
-        } catch(AssertionError e) {
-            if(e.getMessage().contains(d.getHelpFile()))
-                ; // expected
-            else
-                throw e;
+            JenkinsRule.WebClient webclient = j.createWebClient();
+            WebResponseListener.StatusListener statusListener = new WebResponseListener.StatusListener(404);
+            webclient.addWebResponseListener(statusListener);
+
+            clickAllHelpLinks(webclient, p);
+
+            statusListener.assertHasResponses();
+            String contentAsString = statusListener.getResponses().get(0).getContentAsString();
+            Assert.assertTrue(contentAsString.contains(d.getHelpFile()));
         } finally {
             Publisher.all().remove(d);
         }

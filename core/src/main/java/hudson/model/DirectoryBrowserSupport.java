@@ -25,7 +25,6 @@ package hudson.model;
 
 import hudson.FilePath;
 import hudson.Util;
-import hudson.remoting.Callable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -43,6 +42,7 @@ import java.util.logging.Logger;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletResponse;
 import jenkins.model.Jenkins;
+import jenkins.security.MasterToSlaveCallable;
 import jenkins.util.VirtualFile;
 import org.apache.commons.io.IOUtils;
 import org.apache.tools.zip.ZipEntry;
@@ -75,6 +75,7 @@ public final class DirectoryBrowserSupport implements HttpResponse {
      * @deprecated as of 1.297
      *      Use {@link #DirectoryBrowserSupport(ModelObject, FilePath, String, String, boolean)}
      */
+    @Deprecated
     public DirectoryBrowserSupport(ModelObject owner, String title) {
         this(owner, (VirtualFile) null, title, null, false);
     }
@@ -147,6 +148,7 @@ public final class DirectoryBrowserSupport implements HttpResponse {
      *      Instead of calling this method explicitly, just return the {@link DirectoryBrowserSupport} object
      *      from the {@code doXYZ} method and let Stapler generate a response for you.
      */
+    @Deprecated
     public void serveFile(StaplerRequest req, StaplerResponse rsp, FilePath root, String icon, boolean serveDirIndex) throws IOException, ServletException, InterruptedException {
         serveFile(req, rsp, root.toVirtualFile(), icon, serveDirIndex);
     }
@@ -284,7 +286,12 @@ public final class DirectoryBrowserSupport implements HttpResponse {
         boolean view = rest.equals("*view*");
 
         if(rest.equals("*fingerprint*")) {
-            rsp.forward(Jenkins.getInstance().getFingerprint(Util.getDigestOf(baseFile.open())), "/", req);
+            InputStream fingerprintInput = baseFile.open();
+            try {
+                rsp.forward(Jenkins.getInstance().getFingerprint(Util.getDigestOf(fingerprintInput)), "/", req);
+            } finally {
+                fingerprintInput.close();
+            }
             return;
         }
 
@@ -349,7 +356,11 @@ public final class DirectoryBrowserSupport implements HttpResponse {
             } else {
                 relativePath = n;
             }
-            ZipEntry e = new ZipEntry(relativePath);
+            // In ZIP archives "All slashes MUST be forward slashes" (http://pkware.com/documents/casestudies/APPNOTE.TXT)
+            // TODO On Linux file names can contain backslashes which should not treated as file separators.
+            //      Unfortunately, only the file separator char of the master is known (File.separatorChar)
+            //      but not the file separator char of the (maybe remote) "dir".
+            ZipEntry e = new ZipEntry(relativePath.replace('\\', '/'));
             VirtualFile f = dir.child(n);
             e.setTime(f.lastModified());
             zos.putNextEntry(e);
@@ -461,7 +472,7 @@ public final class DirectoryBrowserSupport implements HttpResponse {
         }
     }
 
-    private static final class BuildChildPaths implements Callable<List<List<Path>>,IOException> {
+    private static final class BuildChildPaths extends MasterToSlaveCallable<List<List<Path>>,IOException> {
         private final VirtualFile cur;
         private final Locale locale;
         BuildChildPaths(VirtualFile cur, Locale locale) {

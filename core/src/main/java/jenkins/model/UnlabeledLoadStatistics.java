@@ -28,7 +28,14 @@ import hudson.model.LoadStatistics;
 import hudson.model.Node;
 import hudson.model.Node.Mode;
 import hudson.model.OverallLoadStatistics;
+import hudson.model.Queue;
 import hudson.model.Queue.Task;
+import hudson.model.queue.SubTask;
+import hudson.model.queue.Tasks;
+import hudson.util.Iterators;
+
+import java.util.Iterator;
+import java.util.List;
 
 /**
  * {@link LoadStatistics} that track the "free roam" jobs (whose {@link Task#getAssignedLabel()} is null)
@@ -41,6 +48,8 @@ import hudson.model.Queue.Task;
  */
 public class UnlabeledLoadStatistics extends LoadStatistics {
 
+    private final Iterable<Node> nodes = new UnlabeledNodesIterable();
+
     UnlabeledLoadStatistics() {
         super(0, 0);
     }
@@ -50,7 +59,7 @@ public class UnlabeledLoadStatistics extends LoadStatistics {
         int r=0;
         for (Computer c : Jenkins.getInstance().getComputers()) {
             Node node = c.getNode();
-            if (node != null && node.getMode() == Mode.NORMAL && (c.isOnline() || c.isConnecting())) {
+            if (node != null && node.getMode() == Mode.NORMAL && (c.isOnline() || c.isConnecting()) && c.isAcceptingTasks()) {
                 r += c.countIdle();
             }
         }
@@ -71,6 +80,48 @@ public class UnlabeledLoadStatistics extends LoadStatistics {
 
     @Override
     public int computeQueueLength() {
-        return Jenkins.getInstance().getQueue().countBuildableItemsFor(null);
+        final Jenkins j = Jenkins.getInstance();
+        if (j == null) { // Consider queue as empty when Jenkins is inactive
+            return 0;
+        }
+        return j.getQueue().strictCountBuildableItemsFor(null); 
+    }
+
+    @Override
+    protected Iterable<Node> getNodes() {
+        return nodes;
+    }
+
+    @Override
+    protected boolean matches(Queue.Item item, SubTask subTask) {
+        return item.getAssignedLabelFor(subTask) == null;
+    }
+
+    private static class UnlabeledNodesIterable implements Iterable<Node> {
+
+        @Override
+        public Iterator<Node> iterator() {
+            return new UnlabeledNodesIterator();
+        }
+    }
+
+    private static class UnlabeledNodesIterator extends Iterators.FilterIterator<Node> {
+
+        protected UnlabeledNodesIterator() {
+            super(Jenkins.getActiveInstance().getNodes().iterator());
+        }
+
+        @Override
+        protected boolean filter(Node n) {
+            return n != null && n.getMode() == Mode.NORMAL;
+        }
+
+        public void remove() {
+            // why does Iterators.FilterIterator do the stupid thing and allow remove?
+            // (remove should remove the object last returned by next(), but it won't if hasNext() is called
+            // the way Iterators.FilterIterator is written... it should just return a read-only
+            // view... which is what we do!
+            throw new UnsupportedOperationException("remove");
+        }
     }
 }

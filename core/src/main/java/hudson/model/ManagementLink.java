@@ -97,6 +97,7 @@ public abstract class ManagementLink implements ExtensionPoint, Action {
      * @deprecated as of 1.286
      *      Use {@link #all()} for read access and put {@link Extension} for registration.
      */
+    @Deprecated
     public static final List<ManagementLink> LIST = ExtensionListView.createList(ManagementLink.class);
 
     /**
@@ -111,5 +112,15 @@ public abstract class ManagementLink implements ExtensionPoint, Action {
      */
     public Permission getRequiredPermission() {
         return null;
+    }
+
+    /**
+     * Define if the rendered link will use the default GET method or POST.
+     * @return true if POST must be used
+     * @see RequirePOST
+     * @since 1.584
+     */
+    public boolean getRequiresPOST() {
+        return false;
     }
 }

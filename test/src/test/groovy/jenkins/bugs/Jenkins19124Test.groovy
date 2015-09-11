@@ -1,5 +1,6 @@
 package jenkins.bugs
 
+import com.gargoylesoftware.htmlunit.WebClientUtil
 import hudson.Launcher
 import hudson.model.AbstractBuild
 import hudson.model.AbstractProject
@@ -10,7 +11,7 @@ import hudson.util.FormValidation
 import hudson.util.ListBoxModel
 import org.junit.Rule
 import org.junit.Test
-import org.jvnet.hudson.test.Bug
+import org.jvnet.hudson.test.Issue
 import org.jvnet.hudson.test.JenkinsRule
 import org.jvnet.hudson.test.TestExtension
 import org.kohsuke.stapler.QueryParameter
@@ -29,7 +30,7 @@ class Jenkins19124Test {
     @Inject
     DescriptorImpl d;
 
-    @Bug(19124)
+    @Issue("JENKINS-19124")
     @Test
     public void interrelatedFormValidation() {
         j.jenkins.injector.injectMembers(this);
@@ -40,10 +41,12 @@ class Jenkins19124Test {
         def wc = j.createWebClient();
         def c = wc.getPage(p, "configure");
         c.getElementByName("_.alpha").valueAttribute = "hello";
+        WebClientUtil.waitForJSExec(wc);
         assert d.alpha=="hello";
         assert d.bravo=="2";
 
         c.getElementByName("_.bravo").setSelectedAttribute("1",true);
+        WebClientUtil.waitForJSExec(wc);
         assert d.alpha=="hello";
         assert d.bravo=="1";
     }

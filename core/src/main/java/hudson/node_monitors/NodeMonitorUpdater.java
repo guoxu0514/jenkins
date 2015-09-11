@@ -4,10 +4,14 @@ import hudson.Extension;
 import hudson.model.Computer;
 import hudson.model.TaskListener;
 import hudson.slaves.ComputerListener;
+import hudson.util.Futures;
 import jenkins.model.Jenkins;
 
 import java.io.IOException;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+
 import jenkins.util.Timer;
 
 /**
@@ -18,7 +22,16 @@ import jenkins.util.Timer;
 @Extension
 public class NodeMonitorUpdater extends ComputerListener {
 
-    private volatile long timestamp;
+    private static final Runnable MONITOR_UPDATER = new Runnable() {
+        @Override
+        public void run() {
+            for (NodeMonitor nm : Jenkins.getInstance().getComputer().getMonitors()) {
+                nm.triggerUpdate();
+            }
+        }
+    };
+
+    private Future<?> future = Futures.precomputed(null);
 
     /**
      * Triggers the update with 5 seconds quiet period, to avoid triggering data check too often
@@ -26,17 +39,9 @@ public class NodeMonitorUpdater extends ComputerListener {
      */
     @Override
     public void onOnline(Computer c, TaskListener listener) throws IOException, InterruptedException {
-        timestamp = System.currentTimeMillis();
-        Timer.get().schedule(new Runnable() {
-            public void run() {
-                if (System.currentTimeMillis()-timestamp<4000)
-                    return;
-
-                for (NodeMonitor nm : Jenkins.getInstance().getComputer().getMonitors()) {
-                    nm.triggerUpdate();
-                }
-            }
-        }, 5, TimeUnit.SECONDS);
+        synchronized(this) {
+            future.cancel(false);
+            future = Timer.get().schedule(MONITOR_UPDATER, 5, TimeUnit.SECONDS);
+        }
     }
-
 }

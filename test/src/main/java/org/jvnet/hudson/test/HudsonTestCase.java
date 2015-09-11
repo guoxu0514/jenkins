@@ -25,6 +25,10 @@
 package org.jvnet.hudson.test;
 
 import com.gargoylesoftware.htmlunit.AlertHandler;
+import com.gargoylesoftware.htmlunit.WebClientUtil;
+import com.gargoylesoftware.htmlunit.WebRequest;
+import com.gargoylesoftware.htmlunit.html.DomNodeUtil;
+import com.gargoylesoftware.htmlunit.html.HtmlFormUtil;
 import com.gargoylesoftware.htmlunit.html.HtmlImage;
 import com.google.inject.Injector;
 
@@ -101,6 +105,7 @@ import java.net.MalformedURLException;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.net.URLConnection;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -119,6 +124,7 @@ import java.util.logging.Level;
 import java.util.logging.LogRecord;
 import java.util.logging.Logger;
 
+import javax.annotation.Nonnull;
 import javax.servlet.ServletContext;
 import javax.servlet.ServletContextEvent;
 
@@ -174,7 +180,6 @@ import com.gargoylesoftware.htmlunit.BrowserVersion;
 import com.gargoylesoftware.htmlunit.DefaultCssErrorHandler;
 import com.gargoylesoftware.htmlunit.FailingHttpStatusCodeException;
 import com.gargoylesoftware.htmlunit.Page;
-import com.gargoylesoftware.htmlunit.WebRequestSettings;
 import com.gargoylesoftware.htmlunit.html.DomNode;
 import com.gargoylesoftware.htmlunit.html.HtmlButton;
 import com.gargoylesoftware.htmlunit.html.HtmlElement;
@@ -276,6 +281,8 @@ public abstract class HudsonTestCase extends TestCase implements RootAction {
      */
     protected File explodedWarDir;
 
+    private boolean origDefaultUseCache = true;
+
     protected HudsonTestCase(String name) {
         super(name);
     }
@@ -298,6 +305,18 @@ public abstract class HudsonTestCase extends TestCase implements RootAction {
 
     @Override
     protected void  setUp() throws Exception {
+        if(Functions.isWindows()) {
+            // JENKINS-4409.
+            // URLConnection caches handles to jar files by default,
+            // and it prevents delete temporary directories on Windows.
+            // Disables caching here.
+            // Though defaultUseCache is a static field,
+            // its setter and getter are provided as instance methods.
+            URLConnection aConnection = new File(".").toURI().toURL().openConnection();
+            origDefaultUseCache = aConnection.getDefaultUseCaches();
+            aConnection.setDefaultUseCaches(false);
+        }
+        
         env.pin();
         recipe();
         for (Runner r : recipes) {
@@ -411,15 +430,26 @@ public abstract class HudsonTestCase extends TestCase implements RootAction {
 
             if (jenkins!=null)
                 jenkins.cleanUp();
-            env.dispose();
             ExtensionList.clearLegacyInstances();
             DescriptorExtensionList.clearLegacyInstances();
+
+            try {
+                env.dispose();
+            } catch (Exception x) {
+                x.printStackTrace();
+            }
 
             // Jenkins creates ClassLoaders for plugins that hold on to file descriptors of its jar files,
             // but because there's no explicit dispose method on ClassLoader, they won't get GC-ed until
             // at some later point, leading to possible file descriptor overflow. So encourage GC now.
             // see http://bugs.sun.com/view_bug.do?bug_id=4950148
             System.gc();
+            
+            // restore defaultUseCache
+            if(Functions.isWindows()) {
+                URLConnection aConnection = new File(".").toURI().toURL().openConnection();
+                aConnection.setDefaultUseCaches(origDefaultUseCache);
+            }
         }
     }
 
@@ -1016,7 +1046,7 @@ public abstract class HudsonTestCase extends TestCase implements RootAction {
      */
     public void assertXPath(HtmlPage page, String xpath) {
         assertNotNull("There should be an object that matches XPath:" + xpath,
-                page.getDocumentElement().selectSingleNode(xpath));
+                DomNodeUtil.selectSingleNode(page.getDocumentElement(), xpath));
     }
 
     /** Asserts that the XPath matches the contents of a DomNode page. This
@@ -1072,7 +1102,7 @@ public abstract class HudsonTestCase extends TestCase implements RootAction {
      * (By default, HtmlUnit doesn't load images.)
      */
     public void assertAllImageLoadSuccessfully(HtmlPage p) {
-        for (HtmlImage img : p.<HtmlImage>selectNodes("//IMG")) {
+        for (HtmlImage img : DomNodeUtil.<HtmlImage>selectNodes(p, "//IMG")) {
             try {
                 img.getHeight();
             } catch (IOException e) {
@@ -1134,7 +1164,7 @@ public abstract class HudsonTestCase extends TestCase implements RootAction {
      * Plain {@link HtmlForm#submit()} doesn't work correctly due to the use of YUI in Hudson.
      */
     public HtmlPage submit(HtmlForm form) throws Exception {
-        return (HtmlPage)form.submit((HtmlButton)last(form.getHtmlElementsByTagName("button")));
+        return (HtmlPage) HtmlFormUtil.submit(form, last(form.getHtmlElementsByTagName("button")));
     }
 
     /**
@@ -1146,24 +1176,15 @@ public abstract class HudsonTestCase extends TestCase implements RootAction {
     public HtmlPage submit(HtmlForm form, String name) throws Exception {
         for( HtmlElement e : form.getHtmlElementsByTagName("button")) {
             HtmlElement p = (HtmlElement)e.getParentNode().getParentNode();
-            if(p.getAttribute("name").equals(name)) {
-                // To make YUI event handling work, this combo seems to be necessary
-                // the click will trigger _onClick in buton-*.js, but it doesn't submit the form
-                // (a comment alluding to this behavior can be seen in submitForm method)
-                // so to complete it, submit the form later.
-                //
-                // Just doing form.submit() doesn't work either, because it doesn't do
-                // the preparation work needed to pass along the name of the button that
-                // triggered a submission (more concretely, m_oSubmitTrigger is not set.)
-                ((HtmlButton)e).click();
-                return (HtmlPage)form.submit((HtmlButton)e);
+            if (e instanceof HtmlButton && p.getAttribute("name").equals(name)) {
+                return (HtmlPage)HtmlFormUtil.submit(form, (HtmlButton) e);
             }
         }
         throw new AssertionError("No such submit button with the name "+name);
     }
 
     protected HtmlInput findPreviousInputElement(HtmlElement current, String name) {
-        return (HtmlInput)current.selectSingleNode("(preceding::input[@name='_."+name+"'])[last()]");
+        return DomNodeUtil.selectSingleNode(current, "(preceding::input[@name='_."+name+"'])[last()]");
     }
 
     protected HtmlButton getButtonByCaption(HtmlForm f, String s) {
@@ -1603,19 +1624,19 @@ public abstract class HudsonTestCase extends TestCase implements RootAction {
      * for accessing Hudson.
      */
     public class WebClient extends com.gargoylesoftware.htmlunit.WebClient {
-        private static final long serialVersionUID = 5808915989048338267L;
+        private static final long serialVersionUID = 8720028298174337333L;
 
         public WebClient() {
             // default is IE6, but this causes 'n.doScroll('left')' to fail in event-debug.js:1907 as HtmlUnit doesn't implement such a method,
             // so trying something else, until we discover another problem.
-            super(BrowserVersion.FIREFOX_2);
+            super(BrowserVersion.FIREFOX_38);
 
             setPageCreator(HudsonPageCreator.INSTANCE);
             clients.add(this);
             // make ajax calls run as post-action for predictable behaviors that simplify debugging
             setAjaxController(new AjaxController() {
-                private static final long serialVersionUID = -5844060943564822678L;
-                public boolean processSynchron(HtmlPage page, WebRequestSettings settings, boolean async) {
+                private static final long serialVersionUID = 6730107519583349963L;
+                public boolean processSynchron(HtmlPage page, WebRequest settings, boolean async) {
                     return false;
                 }
             });
@@ -1663,7 +1684,7 @@ public abstract class HudsonTestCase extends TestCase implements RootAction {
 
             // avoid a hang by setting a time out. It should be long enough to prevent
             // false-positive timeout on slow systems
-            setTimeout(60*1000);
+            //setTimeout(60*1000);
         }
 
         /**
@@ -1675,7 +1696,7 @@ public abstract class HudsonTestCase extends TestCase implements RootAction {
             HtmlForm form = page.getFormByName("login");
             form.getInputByName("j_username").setValueAttribute(username);
             form.getInputByName("j_password").setValueAttribute(password);
-            form.submit(null);
+            HtmlFormUtil.submit(form, null);
             return this;
         }
 
@@ -1741,7 +1762,7 @@ public abstract class HudsonTestCase extends TestCase implements RootAction {
             HtmlPage top = goTo("");
             HtmlForm search = top.getFormByName("search");
             search.getInputByName("q").setValueAttribute(q);
-            return (HtmlPage)search.submit(null);
+            return (HtmlPage)HtmlFormUtil.submit(search, null);
         }
 
         /**
@@ -1795,7 +1816,11 @@ public abstract class HudsonTestCase extends TestCase implements RootAction {
         @SuppressWarnings("unchecked")
         @Override
         public Page getPage(String url) throws IOException, FailingHttpStatusCodeException {
-            return super.getPage(url);
+            try {
+                return super.getPage(url);
+            } finally {
+                WebClientUtil.waitForJSExec(this);
+            }
         }
 
         /**
@@ -1819,6 +1844,7 @@ public abstract class HudsonTestCase extends TestCase implements RootAction {
             Page p;
             try {
                 p = super.getPage(getContextPath() + relative);
+                WebClientUtil.waitForJSExec(this);
             } catch (IOException x) {
                 if (x.getCause() != null) {
                     x.getCause().printStackTrace();
@@ -1869,12 +1895,10 @@ public abstract class HudsonTestCase extends TestCase implements RootAction {
         /**
          * Adds a security crumb to the quest
          */
-        public WebRequestSettings addCrumb(WebRequestSettings req) {
-            NameValuePair crumb[] = { new NameValuePair() };
-            
-            crumb[0].setName(jenkins.getCrumbIssuer().getDescriptor().getCrumbRequestField());
-            crumb[0].setValue(jenkins.getCrumbIssuer().getCrumb( null ));
-            
+        public WebRequest addCrumb(WebRequest req) {
+            com.gargoylesoftware.htmlunit.util.NameValuePair crumb = new com.gargoylesoftware.htmlunit.util.NameValuePair(
+                    jenkins.getCrumbIssuer().getDescriptor().getCrumbRequestField(),
+                    jenkins.getCrumbIssuer().getCrumb( null ));
             req.setRequestParameters(Arrays.asList( crumb ));
             return req;
         }

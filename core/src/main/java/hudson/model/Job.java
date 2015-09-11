@@ -63,6 +63,7 @@ import hudson.widgets.HistoryWidget;
 import hudson.widgets.HistoryWidget.Adapter;
 import hudson.widgets.Widget;
 import jenkins.model.BuildDiscarder;
+import jenkins.model.DirectlyModifiableTopLevelItemGroup;
 import jenkins.model.Jenkins;
 import jenkins.model.ProjectNamingStrategy;
 import jenkins.security.HexStringConfidentialKey;
@@ -70,6 +71,7 @@ import jenkins.util.io.OnMaster;
 import net.sf.json.JSONException;
 import net.sf.json.JSONObject;
 
+import org.apache.commons.io.FileUtils;
 import org.jfree.chart.ChartFactory;
 import org.jfree.chart.JFreeChart;
 import org.jfree.chart.axis.CategoryAxis;
@@ -96,11 +98,17 @@ import java.io.*;
 import java.net.URLEncoder;
 import java.util.*;
 import java.util.List;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import javax.annotation.CheckForNull;
 import javax.annotation.Nonnull;
 
 import static javax.servlet.http.HttpServletResponse.*;
+import jenkins.model.ModelObjectWithChildren;
+import jenkins.model.RunIdMigrator;
 import jenkins.model.lazy.LazyBuildMixIn;
+import org.kohsuke.accmod.Restricted;
+import org.kohsuke.accmod.restrictions.NoExternalUse;
 
 /**
  * A job is an runnable entity under the monitoring of Hudson.
@@ -114,7 +122,7 @@ import jenkins.model.lazy.LazyBuildMixIn;
  * @author Kohsuke Kawaguchi
  */
 public abstract class Job<JobT extends Job<JobT, RunT>, RunT extends Run<JobT, RunT>>
-        extends AbstractItem implements ExtensionPoint, StaplerOverridable, OnMaster {
+        extends AbstractItem implements ExtensionPoint, StaplerOverridable, ModelObjectWithChildren, OnMaster {
 
     /**
      * Next build number. Kept in a separate file because this is the only
@@ -152,10 +160,13 @@ public abstract class Job<JobT extends Job<JobT, RunT>, RunT extends Run<JobT, R
     boolean keepDependencies;
 
     /**
-     * List of {@link UserProperty}s configured for this project.
+     * List of properties configured for this project.
      */
     // this should have been DescribableList but now it's too late
     protected CopyOnWriteList<JobProperty<? super JobT>> properties = new CopyOnWriteList<JobProperty<? super JobT>>();
+
+    @Restricted(NoExternalUse.class)
+    public transient RunIdMigrator runIdMigrator;
 
     protected Job(ItemGroup parent, String name) {
         super(parent, name);
@@ -167,10 +178,20 @@ public abstract class Job<JobT extends Job<JobT, RunT>, RunT extends Run<JobT, R
         holdOffBuildUntilSave = holdOffBuildUntilUserSave;
     }
 
+    @Override public void onCreatedFromScratch() {
+        super.onCreatedFromScratch();
+        runIdMigrator = new RunIdMigrator();
+        runIdMigrator.created(getBuildDir());
+    }
+
     @Override
     public void onLoad(ItemGroup<? extends Item> parent, String name)
             throws IOException {
         super.onLoad(parent, name);
+
+        File buildDir = getBuildDir();
+        runIdMigrator = new RunIdMigrator();
+        runIdMigrator.migrate(buildDir, Jenkins.getInstance().getRootDir());
 
         TextFile f = getNextBuildNumberFile();
         if (f.exists()) {
@@ -183,7 +204,7 @@ public abstract class Job<JobT extends Job<JobT, RunT>, RunT extends Run<JobT, R
                 }
             } catch (NumberFormatException e) {
                 // try to infer the value of the next build number from the existing build records. See JENKINS-11563
-                File[] folders = this.getBuildDir().listFiles(new FileFilter() {
+                File[] folders = buildDir.listFiles(new FileFilter() {
                     public boolean accept(File file) {
                         return file.isDirectory() && file.getName().matches("[0-9]+");
                     }
@@ -421,6 +442,7 @@ public abstract class Job<JobT extends Job<JobT, RunT>, RunT extends Run<JobT, R
      * @deprecated as of 1.503
      *      Use {@link #getBuildDiscarder()}.
      */
+    @Deprecated
     public LogRotator getLogRotator() {
         if (logRotator instanceof LogRotator)
             return (LogRotator) logRotator;
@@ -431,6 +453,7 @@ public abstract class Job<JobT extends Job<JobT, RunT>, RunT extends Run<JobT, R
      * @deprecated as of 1.503
      *      Use {@link #setBuildDiscarder(BuildDiscarder)}
      */
+    @Deprecated
     public void setLogRotator(LogRotator logRotator) throws IOException {
         setBuildDiscarder(logRotator);
     }
@@ -618,9 +641,23 @@ public abstract class Job<JobT extends Job<JobT, RunT>, RunT extends Run<JobT, R
         super.renameTo(newName);
         File newBuildDir = getBuildDir();
         if (oldBuildDir.isDirectory() && !newBuildDir.isDirectory()) {
+            if (!newBuildDir.getParentFile().isDirectory()) {
+                newBuildDir.getParentFile().mkdirs();
+            }
             if (!oldBuildDir.renameTo(newBuildDir)) {
                 throw new IOException("failed to rename " + oldBuildDir + " to " + newBuildDir);
             }
+        }
+    }
+
+    @Override
+    public void movedTo(DirectlyModifiableTopLevelItemGroup destination, AbstractItem newItem, File destDir) throws IOException {
+        Job newJob = (Job) newItem; // Missing covariant parameters type here.
+        File oldBuildDir = getBuildDir();
+        super.movedTo(destination, newItem, destDir);
+        File newBuildDir = getBuildDir();
+        if (oldBuildDir.isDirectory()) {
+            FileUtils.moveDirectory(oldBuildDir, newBuildDir);
         }
     }
 
@@ -709,6 +746,7 @@ public abstract class Job<JobT extends Job<JobT, RunT>, RunT extends Run<JobT, R
      *      as of 1.372. Should just do {@code getBuilds().byTimestamp(s,e)} to avoid code bloat in {@link Job}.
      */
     @WithBridgeMethods(List.class)
+    @Deprecated
     public RunList<RunT> getBuildsByTimestamp(long start, long end) {
         return getBuilds().byTimestamp(start,end);
     }
@@ -997,6 +1035,18 @@ public abstract class Job<JobT extends Job<JobT, RunT>, RunT extends Run<JobT, R
         }
         return permalinks;
     }
+    
+    @Override public ContextMenu doChildrenContextMenu(StaplerRequest request, StaplerResponse response) throws Exception {
+        // not sure what would be really useful here. This needs more thoughts.
+        // for the time being, I'm starting with permalinks
+        ContextMenu menu = new ContextMenu();
+        for (Permalink p : getPermalinks()) {
+            if (p.resolve(this) != null) {
+                menu.add(p.getId(), p.getDisplayName());
+            }
+        }
+        return menu;
+    }
 
     /**
      * Used as the color of the status ball for the project.
@@ -1130,9 +1180,9 @@ public abstract class Job<JobT extends Job<JobT, RunT>, RunT extends Run<JobT, R
 
         description = req.getParameter("description");
 
-        try {
-            JSONObject json = req.getSubmittedForm();
+        JSONObject json = req.getSubmittedForm();
 
+        try {
             setDisplayName(json.optString("displayNameOrNull"));
 
             if (json.optBoolean("logrotate"))
@@ -1176,15 +1226,8 @@ public abstract class Job<JobT extends Job<JobT, RunT>, RunT extends Run<JobT, R
                 FormApply.success(".").generateResponse(req, rsp, null);
             }
         } catch (JSONException e) {
-            StringWriter sw = new StringWriter();
-            PrintWriter pw = new PrintWriter(sw);
-            pw.println("Failed to parse form data. Please report this problem as a bug");
-            pw.println("JSON=" + req.getSubmittedForm());
-            pw.println();
-            e.printStackTrace(pw);
-
-            rsp.setStatus(SC_BAD_REQUEST);
-            sendError(sw.toString(), req, rsp, true);
+            Logger.getLogger(Job.class.getName()).log(Level.WARNING, "failed to parse " + json, e);
+            sendError(e, req, rsp);
         }
     }
 

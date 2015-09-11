@@ -2,6 +2,7 @@
  * The MIT License
  * 
  * Copyright (c) 2004-2009, Sun Microsystems, Inc., Kohsuke Kawaguchi, Brian Westrich, Jean-Baptiste Quenot, id:cactusman
+ *               2015 Kanstantsin Shautsou
  * 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -24,6 +25,7 @@
 package hudson.triggers;
 
 import antlr.ANTLRException;
+import com.google.common.base.Preconditions;
 import hudson.Extension;
 import hudson.Util;
 import hudson.console.AnnotatedLargeText;
@@ -67,10 +69,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.logging.Level;
-import static java.util.logging.Level.WARNING;
 import java.util.logging.Logger;
 import jenkins.model.Jenkins;
-import jenkins.model.RunAction2;
 import jenkins.triggers.SCMTriggerItem;
 import net.sf.json.JSONObject;
 import org.kohsuke.accmod.restrictions.NoExternalUse;
@@ -80,7 +80,6 @@ import org.kohsuke.stapler.StaplerResponse;
 import static java.util.logging.Level.*;
 import jenkins.model.RunAction2;
 
-import javax.annotation.Nonnull;
 
 /**
  * {@link Trigger} that checks for SCM updates periodically.
@@ -120,6 +119,10 @@ public class SCMTrigger extends Trigger<Item> {
 
     @Override
     public void run() {
+        if (job == null) {
+            return;
+        }
+
         run(null);
     }
 
@@ -131,8 +134,9 @@ public class SCMTrigger extends Trigger<Item> {
      * @since 1.375
      */
     public void run(Action[] additionalActions) {
-        if(Jenkins.getInstance().isQuietingDown())
-            return; // noop
+        if (job == null) {
+            return;
+        }
 
         DescriptorImpl d = getDescriptor();
 
@@ -158,6 +162,10 @@ public class SCMTrigger extends Trigger<Item> {
 
     @Override
     public Collection<? extends Action> getProjectActions() {
+        if (job == null) {
+            return Collections.emptyList();
+        }
+
         return Collections.singleton(new SCMAction());
     }
 
@@ -463,10 +471,12 @@ public class SCMTrigger extends Trigger<Item> {
         private Action[] additionalActions;
 
         public Runner() {
-            additionalActions = new Action[0];
+            this(null);
         }
         
         public Runner(Action[] actions) {
+            Preconditions.checkNotNull(job, "Runner can't be instantiated when job is null");
+
             if (actions == null) {
                 additionalActions = new Action[0];
             } else {
@@ -520,11 +530,7 @@ public class SCMTrigger extends Trigger<Item> {
                     else
                         logger.println("No changes");
                     return result;
-                } catch (Error e) {
-                    e.printStackTrace(listener.error("Failed to record SCM polling for "+job));
-                    LOGGER.log(Level.SEVERE,"Failed to record SCM polling for "+job,e);
-                    throw e;
-                } catch (RuntimeException e) {
+                } catch (Error | RuntimeException e) {
                     e.printStackTrace(listener.error("Failed to record SCM polling for "+job));
                     LOGGER.log(Level.SEVERE,"Failed to record SCM polling for "+job,e);
                     throw e;
@@ -538,6 +544,10 @@ public class SCMTrigger extends Trigger<Item> {
         }
 
         public void run() {
+            if (job == null) {
+                return;
+            }
+
             String threadName = Thread.currentThread().getName();
             Thread.currentThread().setName("SCM polling for "+job);
             try {
@@ -606,6 +616,7 @@ public class SCMTrigger extends Trigger<Item> {
          * @deprecated
          *      Use {@link #SCMTrigger.SCMTriggerCause(String)}.
          */
+        @Deprecated
         public SCMTriggerCause() {
             this("");
         }

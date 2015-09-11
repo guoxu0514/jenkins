@@ -24,16 +24,21 @@
 
 package hudson.model;
 
+import java.io.File;
 import java.util.Arrays;
+
 import org.junit.Test;
 import static org.junit.Assert.*;
 import org.junit.Rule;
+import org.junit.rules.TemporaryFolder;
+import org.jvnet.hudson.test.Issue;
 import org.jvnet.hudson.test.JenkinsRule;
 import org.jvnet.hudson.test.MockFolder;
 
 public class ItemsTest {
 
     @Rule public JenkinsRule r = new JenkinsRule();
+    @Rule public TemporaryFolder tmpRule = new TemporaryFolder();
 
     @Test public void getAllItems() throws Exception {
         MockFolder d = r.createFolder("d");
@@ -54,6 +59,19 @@ public class ItemsTest {
         FreeStyleProject sub2charlie = sub2.createProject(FreeStyleProject.class, "charlie");
         assertEquals(Arrays.asList(dp, sub1p, sub1q, sub2ap, sub2alpha, sub2bp, sub2BRAVO, sub2cp, sub2charlie), Items.getAllItems(d, FreeStyleProject.class));
         assertEquals(Arrays.<Item>asList(sub2a, sub2ap, sub2alpha, sub2b, sub2bp, sub2BRAVO, sub2c, sub2cp, sub2charlie), Items.getAllItems(sub2, Item.class));
+    }
+
+    @Issue("JENKINS-24825")
+    @Test public void moveItem() throws Exception {
+        File tmp = tmpRule.getRoot();
+        r.jenkins.setRawBuildsDir(tmp.getAbsolutePath()+"/${ITEM_FULL_NAME}");
+        MockFolder foo = r.createFolder("foo");
+        MockFolder bar = r.createFolder("bar");
+        FreeStyleProject test = foo.createProject(FreeStyleProject.class, "test");
+        test.scheduleBuild2(0).get();
+        Items.move(test, bar);
+        assertFalse(new File(tmp, "foo/test/1").exists());
+        assertTrue(new File(tmp, "bar/test/1").exists());
     }
 
 }

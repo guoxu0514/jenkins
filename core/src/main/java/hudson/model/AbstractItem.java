@@ -34,7 +34,6 @@ import hudson.cli.declarative.CLIMethod;
 import hudson.cli.declarative.CLIResolver;
 import hudson.model.listeners.ItemListener;
 import hudson.model.listeners.SaveableListener;
-import hudson.remoting.Callable;
 import hudson.security.AccessControlled;
 import hudson.security.Permission;
 import hudson.security.ACL;
@@ -42,7 +41,12 @@ import hudson.util.AlternativeUiTextProvider;
 import hudson.util.AlternativeUiTextProvider.Message;
 import hudson.util.AtomicFileWriter;
 import hudson.util.IOUtils;
+import jenkins.model.DirectlyModifiableTopLevelItemGroup;
 import jenkins.model.Jenkins;
+import jenkins.security.NotReallyRoleSensitiveCallable;
+import org.acegisecurity.Authentication;
+import jenkins.util.xml.XMLUtils;
+
 import org.apache.tools.ant.taskdefs.Copy;
 import org.apache.tools.ant.types.FileSet;
 import org.kohsuke.stapler.WebMethod;
@@ -65,12 +69,11 @@ import org.kohsuke.stapler.HttpDeletable;
 import org.kohsuke.args4j.Argument;
 import org.kohsuke.args4j.CmdLineException;
 import org.kohsuke.stapler.interceptor.RequirePOST;
+import org.xml.sax.SAXException;
 
 import javax.servlet.ServletException;
 import javax.xml.transform.Source;
-import javax.xml.transform.Transformer;
 import javax.xml.transform.TransformerException;
-import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.stream.StreamResult;
 import javax.xml.transform.stream.StreamSource;
 
@@ -210,9 +213,11 @@ public abstract class AbstractItem extends Actionable implements Item, HttpDelet
      * Not all the Items need to support this operation, but if you decide to do so,
      * you can use this method.
      */
-    protected void renameTo(String newName) throws IOException {
+    protected void renameTo(final String newName) throws IOException {
         // always synchronize from bigger objects first
         final ItemGroup parent = getParent();
+        String oldName = this.name;
+        String oldFullName = getFullName();
         synchronized (parent) {
             synchronized (this) {
                 // sanity check
@@ -223,16 +228,28 @@ public abstract class AbstractItem extends Actionable implements Item, HttpDelet
                 if (this.name.equals(newName))
                     return;
 
-                Item existing = parent.getItem(newName);
-                if (existing != null && existing!=this)
-                    // the look up is case insensitive, so we need "existing!=this"
-                    // to allow people to rename "Foo" to "foo", for example.
-                    // see http://www.nabble.com/error-on-renaming-project-tt18061629.html
-                    throw new IllegalArgumentException("Job " + newName
-                            + " already exists");
+                // the test to see if the project already exists or not needs to be done in escalated privilege
+                // to avoid overwriting
+                ACL.impersonate(ACL.SYSTEM,new NotReallyRoleSensitiveCallable<Void,IOException>() {
+                    final Authentication user = Jenkins.getAuthentication();
+                    @Override
+                    public Void call() throws IOException {
+                        Item existing = parent.getItem(newName);
+                        if (existing != null && existing!=AbstractItem.this) {
+                            if (existing.getACL().hasPermission(user,Item.DISCOVER))
+                                // the look up is case insensitive, so we need "existing!=this"
+                                // to allow people to rename "Foo" to "foo", for example.
+                                // see http://www.nabble.com/error-on-renaming-project-tt18061629.html
+                                throw new IllegalArgumentException("Job " + newName + " already exists");
+                            else {
+                                // can't think of any real way to hide this, but at least the error message could be vague.
+                                throw new IOException("Unable to rename to " + newName);
+                            }
+                        }
+                        return null;
+                    }
+                });
 
-                String oldName = this.name;
-                String oldFullName = getFullName();
                 File oldRoot = this.getRootDir();
 
                 doSetName(newName);
@@ -301,23 +318,28 @@ public abstract class AbstractItem extends Actionable implements Item, HttpDelet
                         doSetName(oldName);
                 }
 
-                callOnRenamed(newName, parent, oldName);
-
-                ItemListener.fireLocationChange(this, oldFullName);
+                try {
+                    parent.onRenamed(this, oldName, newName);
+                } catch (AbstractMethodError _) {
+                    // ignore
+                }
             }
         }
+        ItemListener.fireLocationChange(this, oldFullName);
     }
 
+
     /**
-     * A pointless function to work around what appears to be a HotSpot problem. See JENKINS-5756 and bug 6933067
-     * on BugParade for more details.
+     * Notify this item it's been moved to another location, replaced by newItem (might be the same object, but not guaranteed).
+     * This method is executed <em>after</em> the item root directory has been moved to it's new location.
+     * <p>
+     * Derived classes can override this method to add some specific behavior on move, but have to call parent method
+     * so the item is actually setup within it's new parent.
+     *
+     * @see hudson.model.Items#move(AbstractItem, jenkins.model.DirectlyModifiableTopLevelItemGroup)
      */
-    private void callOnRenamed(String newName, ItemGroup parent, String oldName) throws IOException {
-        try {
-            parent.onRenamed(this, oldName, newName);
-        } catch (AbstractMethodError _) {
-            // ignore
-        }
+    public void movedTo(DirectlyModifiableTopLevelItemGroup destination, AbstractItem newItem, File destDir) throws IOException {
+        newItem.onLoad(destination, name);
     }
 
     /**
@@ -516,7 +538,6 @@ public abstract class AbstractItem extends Actionable implements Item, HttpDelet
      * since it predates {@code <l:confirmationLink>}. {@code /delete} goes to a Jelly page
      * which should now be unused by core but is left in case plugins are still using it.
      */
-    @CLIMethod(name="delete-job")
     @RequirePOST
     public void doDoDelete( StaplerRequest req, StaplerResponse rsp ) throws IOException, ServletException, InterruptedException {
         delete();
@@ -560,16 +581,8 @@ public abstract class AbstractItem extends Actionable implements Item, HttpDelet
         synchronized (this) { // could just make performDelete synchronized but overriders might not honor that
             performDelete();
         } // JENKINS-19446: leave synch block, but JENKINS-22001: still notify synchronously
-        invokeOnDeleted();
-        Jenkins.getInstance().rebuildDependencyGraphAsync();
-    }
-
-    /**
-     * A pointless function to work around what appears to be a HotSpot problem. See JENKINS-5756 and bug 6933067
-     * on BugParade for more details.
-     */
-    private void invokeOnDeleted() throws IOException {
         getParent().onDeleted(AbstractItem.this);
+        Jenkins.getInstance().rebuildDependencyGraphAsync();
     }
 
     /**
@@ -607,35 +620,41 @@ public abstract class AbstractItem extends Actionable implements Item, HttpDelet
      * @deprecated as of 1.473
      *      Use {@link #updateByXml(Source)}
      */
+    @Deprecated
     public void updateByXml(StreamSource source) throws IOException {
         updateByXml((Source)source);
     }
 
     /**
-     * Updates Job by its XML definition.
+     * Updates an Item by its XML definition.
+     * @param source source of the Item's new definition.
+     *               The source should be either a <code>StreamSource</code> or a <code>SAXSource</code>, other
+     *               sources may not be handled.
      * @since 1.473
      */
     public void updateByXml(Source source) throws IOException {
         checkPermission(CONFIGURE);
         XmlFile configXmlFile = getConfigFile();
-        AtomicFileWriter out = new AtomicFileWriter(configXmlFile.getFile());
+        final AtomicFileWriter out = new AtomicFileWriter(configXmlFile.getFile());
         try {
             try {
-                // this allows us to use UTF-8 for storing data,
-                // plus it checks any well-formedness issue in the submitted
-                // data
-                Transformer t = TransformerFactory.newInstance()
-                        .newTransformer();
-                t.transform(source,
-                        new StreamResult(out));
+                XMLUtils.safeTransform(source, new StreamResult(out));
                 out.close();
             } catch (TransformerException e) {
+                throw new IOException("Failed to persist config.xml", e);
+            } catch (SAXException e) {
                 throw new IOException("Failed to persist config.xml", e);
             }
 
             // try to reflect the changes by reloading
-            new XmlFile(Items.XSTREAM, out.getTemporaryFile()).unmarshal(this);
-            Items.whileUpdatingByXml(new Callable<Void,IOException>() {
+            Object o = new XmlFile(Items.XSTREAM, out.getTemporaryFile()).unmarshal(this);
+            if (o!=this) {
+                // ensure that we've got the same job type. extending this code to support updating
+                // to different job type requires destroying & creating a new job type
+                throw new IOException("Expecting "+this.getClass()+" but got "+o.getClass()+" instead");
+            }
+
+            Items.whileUpdatingByXml(new NotReallyRoleSensitiveCallable<Void,IOException>() {
                 @Override public Void call() throws IOException {
                     onLoad(getParent(), getRootDir().getName());
                     return null;
@@ -646,6 +665,7 @@ public abstract class AbstractItem extends Actionable implements Item, HttpDelet
             // if everything went well, commit this new version
             out.commit();
             SaveableListener.fireOnChange(this, getConfigFile());
+
         } finally {
             out.abort(); // don't leave anything behind
         }
@@ -667,7 +687,7 @@ public abstract class AbstractItem extends Actionable implements Item, HttpDelet
 
         // try to reflect the changes by reloading
         getConfigFile().unmarshal(this);
-        Items.whileUpdatingByXml(new Callable<Void, IOException>() {
+        Items.whileUpdatingByXml(new NotReallyRoleSensitiveCallable<Void, IOException>() {
             @Override
             public Void call() throws IOException {
                 onLoad(getParent(), getRootDir().getName());
@@ -712,4 +732,5 @@ public abstract class AbstractItem extends Actionable implements Item, HttpDelet
      * Replaceable pronoun of that points to a job. Defaults to "Job"/"Project" depending on the context.
      */
     public static final Message<AbstractItem> PRONOUN = new Message<AbstractItem>();
+
 }

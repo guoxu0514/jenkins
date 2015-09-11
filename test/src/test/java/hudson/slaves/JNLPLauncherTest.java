@@ -35,6 +35,7 @@ import hudson.remoting.Callable;
 import hudson.remoting.Which;
 import hudson.util.ArgumentListBuilder;
 
+import jenkins.security.SlaveToMasterCallable;
 import org.jvnet.hudson.test.HudsonTestCase;
 import org.jvnet.hudson.test.TestExtension;
 
@@ -136,7 +137,7 @@ public class JNLPLauncherTest extends HudsonTestCase {
     private String getJnlpLink(Computer c) throws Exception {
         HtmlPage p = new WebClient().goTo("computer/"+c.getName()+"/");
         String href = ((HtmlAnchor) p.getElementById("jnlp-link")).getHrefAttribute();
-        href = new URL(new URL(p.getDocumentURI()),href).toExternalForm();
+        href = new URL(new URL(p.getUrl().toExternalForm()),href).toExternalForm();
         return href;
     }
 
@@ -154,7 +155,7 @@ public class JNLPLauncherTest extends HudsonTestCase {
         return c;
     }
 
-    private static class NoopTask implements Callable<String,RuntimeException> {
+    private static class NoopTask extends SlaveToMasterCallable<String,RuntimeException> {
         public String call() {
             return "done";
         }

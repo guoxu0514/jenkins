@@ -22,28 +22,25 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 -->
-
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
   <modelVersion>4.0.0</modelVersion>
 
   <parent>
-    <artifactId>pom</artifactId>
     <groupId>org.jenkins-ci.main</groupId>
-    <version>1.576-SNAPSHOT</version>
+    <artifactId>pom</artifactId>
+    <version>1.629-SNAPSHOT</version>
   </parent>
-  <groupId>org.jenkins-ci.main</groupId>
+
   <artifactId>jenkins-test-harness</artifactId>
 
   <name>Test harness for Jenkins and plugins</name>
-  <description>
-    Unit test harness (src/main) and Unit tests for Jenkins core (src/test)
-  </description>
+  <description>Unit test harness (src/main) and Unit tests for Jenkins core (src/test)</description>
 
   <properties>
     <concurrency>2</concurrency> <!-- may use e.g. 2C for 2 × (number of cores) -->
     <mavenDebug>false</mavenDebug>
     <ignore.random.failures>false</ignore.random.failures>
-    <jacocoSurefireArgs></jacocoSurefireArgs><!-- empty by default -->
+    <jacocoSurefireArgs /><!-- empty by default -->
   </properties>
 
   <dependencies>
@@ -67,6 +64,16 @@ THE SOFTWARE.
       <groupId>${project.groupId}</groupId>
       <artifactId>maven-plugin</artifactId>
       <version>${maven-plugin.version}</version>
+      <exclusions>
+        <exclusion>
+          <groupId>org.apache.httpcomponents</groupId>
+          <artifactId>httpclient</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.apache.httpcomponents</groupId>
+          <artifactId>httpcore</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <dependency>
       <groupId>org.jenkins-ci.plugins</groupId>
@@ -96,7 +103,12 @@ THE SOFTWARE.
     <dependency>
       <groupId>org.jenkins-ci.plugins</groupId>
       <artifactId>matrix-project</artifactId>
-      <version>1.0-beta-1</version>
+      <version>${matrix-project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.jenkins-ci.plugins</groupId>
+      <artifactId>junit</artifactId>
+      <version>1.2-beta-4</version>
     </dependency>
     <dependency>
       <groupId>org.mortbay.jetty</groupId>
@@ -106,9 +118,9 @@ THE SOFTWARE.
     <dependency>
       <groupId>org.jenkins-ci</groupId>
       <artifactId>test-annotations</artifactId>
-      <version>1.1</version>
-      <scope>compile</scope>
+      <version>${test-annotations.version}</version>
       <!-- in this module we need this as a compile scope, whereas in the parent it's test -->
+      <scope>compile</scope>
     </dependency>
     <dependency>
       <groupId>org.jvnet.mock-javamail</groupId>
@@ -125,23 +137,15 @@ THE SOFTWARE.
       <version>1.3</version>
     </dependency>
     <dependency>
-      <groupId>org.jenkins-ci</groupId>
+      <groupId>net.sourceforge.htmlunit</groupId>
       <artifactId>htmlunit</artifactId>
-      <version>2.6-jenkins-6</version>
-      <exclusions>
-        <exclusion>
-          <!--  hides JDK DOM classes in Eclipse -->
-          <groupId>xml-apis</groupId>
-          <artifactId>xml-apis</artifactId>
-        </exclusion>
-      </exclusions>
+      <version>2.18</version>
     </dependency>
     <dependency><!-- we exclude this transient dependency from htmlunit, which we actually need in the test -->
       <groupId>xalan</groupId>
       <artifactId>xalan</artifactId>
       <version>2.7.1</version>
     </dependency>
-
     <dependency>
       <groupId>org.jvnet.hudson</groupId>
       <artifactId>embedded-rhino-debugger</artifactId>
@@ -241,7 +245,6 @@ THE SOFTWARE.
             <artifactId>ant-launcher</artifactId>
             <version>1.8.0</version>
           </dependency>
-
           <dependency>
             <groupId>org.codehaus.gmaven.runtime</groupId>
             <artifactId>gmaven-runtime-2.0</artifactId>
@@ -274,9 +277,7 @@ THE SOFTWARE.
       </properties>
     </profile>
     <profile>
-      <!--
-        Obtain code coverage report. This is done by running Unit tests on our own and suppressing surefire.
-      -->
+      <!-- Obtain code coverage report. This is done by running Unit tests on our own and suppressing surefire. -->
       <id>cobertura</id>
       <build>
         <plugins>

@@ -38,6 +38,7 @@ import hudson.remoting.VirtualChannel;
 import hudson.util.StreamCopyThread;
 import hudson.util.ArgumentListBuilder;
 import hudson.util.ProcessTree;
+import jenkins.security.MasterToSlaveCallable;
 import org.apache.commons.io.input.NullInputStream;
 import org.kohsuke.accmod.Restricted;
 import org.kohsuke.accmod.restrictions.NoExternalUse;
@@ -132,6 +133,7 @@ public abstract class Launcher {
      *      figure out the current {@link Computer} from within a build, use
      *      {@link Computer#currentComputer()}  
      */
+    @Deprecated
     public Computer getComputer() {
         for( Computer c : Jenkins.getInstance().getComputers() )
             if(c.getChannel()==channel)
@@ -146,6 +148,7 @@ public abstract class Launcher {
     public final class ProcStarter {
         protected List<String> commands;
         protected boolean[] masks;
+        private boolean quiet;
         protected FilePath pwd;
         protected OutputStream stdout = NULL_OUTPUT_STREAM, stderr;
         protected InputStream stdin = NULL_INPUT_STREAM;
@@ -210,6 +213,25 @@ public abstract class Launcher {
 
         public boolean[] masks() {
             return masks;
+        }
+
+        /**
+         * Allows {@link #maskedPrintCommandLine(List, boolean[], FilePath)} to be suppressed from {@link hudson.Launcher.LocalLauncher#launch(hudson.Launcher.ProcStarter)}.
+         * Useful when the actual command being printed is noisy and unreadable and the caller would rather print diagnostic information in a customized way.
+         * @param quiet to suppress printing the command line when starting the process; false to keep default behavior of printing
+         * @return this
+         * @since 1.576
+         */
+        public ProcStarter quiet(boolean quiet) {
+            this.quiet = quiet;
+            return this;
+        }
+
+        /**
+         * @since 1.576
+         */
+        public boolean quiet() {
+            return quiet;
         }
 
         public ProcStarter pwd(FilePath workDir) {
@@ -371,7 +393,7 @@ public abstract class Launcher {
          * Copies a {@link ProcStarter}.
          */
         public ProcStarter copy() {
-            ProcStarter rhs = new ProcStarter().cmds(commands).pwd(pwd).masks(masks).stdin(stdin).stdout(stdout).stderr(stderr).envs(envs);
+            ProcStarter rhs = new ProcStarter().cmds(commands).pwd(pwd).masks(masks).stdin(stdin).stdout(stdout).stderr(stderr).envs(envs).quiet(quiet);
             rhs.reverseStdin  = this.reverseStdin;
             rhs.reverseStderr = this.reverseStderr;
             rhs.reverseStdout = this.reverseStdout;
@@ -391,6 +413,7 @@ public abstract class Launcher {
      * @deprecated as of 1.311
      *      Use {@link #launch()} and its associated builder pattern
      */
+    @Deprecated
     public final Proc launch(String cmd, Map<String,String> env, OutputStream out, FilePath workDir) throws IOException {
         return launch(cmd,Util.mapToEnv(env),out,workDir);
     }
@@ -399,6 +422,7 @@ public abstract class Launcher {
      * @deprecated as of 1.311
      *      Use {@link #launch()} and its associated builder pattern
      */
+    @Deprecated
     public final Proc launch(String[] cmd, Map<String, String> env, OutputStream out, FilePath workDir) throws IOException {
         return launch(cmd, Util.mapToEnv(env), out, workDir);
     }
@@ -407,6 +431,7 @@ public abstract class Launcher {
      * @deprecated as of 1.311
      *      Use {@link #launch()} and its associated builder pattern
      */
+    @Deprecated
     public final Proc launch(String[] cmd, Map<String, String> env, InputStream in, OutputStream out) throws IOException {
         return launch(cmd, Util.mapToEnv(env), in, out);
     }
@@ -428,6 +453,7 @@ public abstract class Launcher {
      * @deprecated as of 1.311
      *      Use {@link #launch()} and its associated builder pattern
      */
+    @Deprecated
     public final Proc launch(String[] cmd, boolean[] mask, Map<String, String> env, OutputStream out, FilePath workDir) throws IOException {
         return launch(cmd, mask, Util.mapToEnv(env), out, workDir);
     }
@@ -449,6 +475,7 @@ public abstract class Launcher {
      * @deprecated as of 1.311
      *      Use {@link #launch()} and its associated builder pattern
      */
+    @Deprecated
     public final Proc launch(String[] cmd, boolean[] mask, Map<String, String> env, InputStream in, OutputStream out) throws IOException {
         return launch(cmd, mask, Util.mapToEnv(env), in, out);
     }
@@ -457,6 +484,7 @@ public abstract class Launcher {
      * @deprecated as of 1.311
      *      Use {@link #launch()} and its associated builder pattern
      */
+    @Deprecated
     public final Proc launch(String cmd,String[] env,OutputStream out, FilePath workDir) throws IOException {
         return launch(Util.tokenize(cmd),env,out,workDir);
     }
@@ -465,6 +493,7 @@ public abstract class Launcher {
      * @deprecated as of 1.311
      *      Use {@link #launch()} and its associated builder pattern
      */
+    @Deprecated
     public final Proc launch(String[] cmd, String[] env, OutputStream out, FilePath workDir) throws IOException {
         return launch(cmd, env, null, out, workDir);
     }
@@ -473,6 +502,7 @@ public abstract class Launcher {
      * @deprecated as of 1.311
      *      Use {@link #launch()} and its associated builder pattern
      */
+    @Deprecated
     public final Proc launch(String[] cmd, String[] env, InputStream in, OutputStream out) throws IOException {
         return launch(cmd, env, in, out, null);
     }
@@ -494,6 +524,7 @@ public abstract class Launcher {
      * @deprecated as of 1.311
      *      Use {@link #launch()} and its associated builder pattern
      */
+    @Deprecated
     public final Proc launch(String[] cmd, boolean[] mask, String[] env, OutputStream out, FilePath workDir) throws IOException {
         return launch(cmd, mask, env, null, out, workDir);
     }
@@ -515,6 +546,7 @@ public abstract class Launcher {
      * @deprecated as of 1.311
      *      Use {@link #launch()} and its associated builder pattern
      */
+    @Deprecated
     public final Proc launch(String[] cmd, boolean[] mask, String[] env, InputStream in, OutputStream out) throws IOException {
         return launch(cmd, mask, env, in, out, null);
     }
@@ -533,6 +565,7 @@ public abstract class Launcher {
      * @deprecated as of 1.311
      *      Use {@link #launch()} and its associated builder pattern
      */
+    @Deprecated
     public Proc launch(String[] cmd, String[] env, InputStream in, OutputStream out, FilePath workDir) throws IOException {
         return launch(launch().cmds(cmd).envs(env).stdin(in).stdout(out).pwd(workDir));
     }
@@ -555,6 +588,7 @@ public abstract class Launcher {
      * @deprecated as of 1.311
      *      Use {@link #launch()} and its associated builder pattern
      */
+    @Deprecated
     public Proc launch(String[] cmd, boolean[] mask, String[] env, InputStream in, OutputStream out, FilePath workDir) throws IOException {
         return launch(launch().cmds(cmd).masks(mask).envs(env).stdin(in).stdout(out).pwd(workDir));
     }
@@ -768,7 +802,9 @@ public abstract class Launcher {
 
         @Override
         public Proc launch(ProcStarter ps) throws IOException {
-            maskedPrintCommandLine(ps.commands, ps.masks, ps.pwd);
+            if (!ps.quiet) {
+                maskedPrintCommandLine(ps.commands, ps.masks, ps.pwd);
+            }
 
             EnvVars jobEnv = inherit(ps.envs);
 
@@ -890,7 +926,7 @@ public abstract class Launcher {
             final String workDir = ps.pwd==null ? null : ps.pwd.getRemote();
 
             try {
-                return new ProcImpl(getChannel().call(new RemoteLaunchCallable(ps.commands, ps.masks, ps.envs, in, ps.reverseStdin, out, ps.reverseStdout, err, ps.reverseStderr, workDir, listener)));
+                return new ProcImpl(getChannel().call(new RemoteLaunchCallable(ps.commands, ps.masks, ps.envs, in, ps.reverseStdin, out, ps.reverseStdout, err, ps.reverseStderr, ps.quiet, workDir, listener)));
             } catch (InterruptedException e) {
                 throw (IOException)new InterruptedIOException().initCause(e);
             }
@@ -918,7 +954,7 @@ public abstract class Launcher {
             getChannel().call(new KillTask(modelEnvVars));
         }
 
-        private static final class KillTask implements Callable<Void,RuntimeException> {
+        private static final class KillTask extends MasterToSlaveCallable<Void,RuntimeException> {
             private final Map<String, String> modelEnvVars;
 
             public KillTask(Map<String, String> modelEnvVars) {
@@ -987,7 +1023,7 @@ public abstract class Launcher {
      * 
      * @author rcampbell
      * @author Oleg Nenashev, Synopsys Inc.
-     * @since TODO: define version
+     * @since 1.568
      */
     public static class DecoratedLauncher extends Launcher {
 
@@ -1075,7 +1111,7 @@ public abstract class Launcher {
         IOTriplet getIOtriplet();
     }
 
-    private static class RemoteLaunchCallable implements Callable<RemoteProcess,IOException> {
+    private static class RemoteLaunchCallable extends MasterToSlaveCallable<RemoteProcess,IOException> {
         private final List<String> cmd;
         private final boolean[] masks;
         private final String[] env;
@@ -1085,8 +1121,9 @@ public abstract class Launcher {
         private final String workDir;
         private final TaskListener listener;
         private final boolean reverseStdin, reverseStdout, reverseStderr;
+        private final boolean quiet;
 
-        RemoteLaunchCallable(List<String> cmd, boolean[] masks, String[] env, InputStream in, boolean reverseStdin, OutputStream out, boolean reverseStdout, OutputStream err, boolean reverseStderr, String workDir, TaskListener listener) {
+        RemoteLaunchCallable(List<String> cmd, boolean[] masks, String[] env, InputStream in, boolean reverseStdin, OutputStream out, boolean reverseStdout, OutputStream err, boolean reverseStderr, boolean quiet, String workDir, TaskListener listener) {
             this.cmd = new ArrayList<String>(cmd);
             this.masks = masks;
             this.env = env;
@@ -1098,11 +1135,12 @@ public abstract class Launcher {
             this.reverseStdin = reverseStdin;
             this.reverseStdout = reverseStdout;
             this.reverseStderr = reverseStderr;
+            this.quiet = quiet;
         }
 
         public RemoteProcess call() throws IOException {
             Launcher.ProcStarter ps = new LocalLauncher(listener).launch();
-            ps.cmds(cmd).masks(masks).envs(env).stdin(in).stdout(out).stderr(err);
+            ps.cmds(cmd).masks(masks).envs(env).stdin(in).stdout(out).stderr(err).quiet(quiet);
             if(workDir!=null)   ps.pwd(workDir);
             if (reverseStdin)   ps.writeStdin();
             if (reverseStdout)  ps.readStdout();
@@ -1145,7 +1183,7 @@ public abstract class Launcher {
         private static final long serialVersionUID = 1L;
     }
 
-    private static class RemoteChannelLaunchCallable implements Callable<OutputStream,IOException> {
+    private static class RemoteChannelLaunchCallable extends MasterToSlaveCallable<OutputStream,IOException> {
         private final String[] cmd;
         private final Pipe out;
         private final String workDir;

@@ -29,14 +29,14 @@ import com.sun.jna.ptr.IntByReference;
 import hudson.EnvVars;
 import hudson.FilePath;
 import hudson.Util;
-import jenkins.model.Jenkins;
-import hudson.remoting.Callable;
 import hudson.remoting.Channel;
 import hudson.remoting.VirtualChannel;
 import hudson.slaves.SlaveComputer;
+import hudson.util.ProcessKillingVeto.VetoCause;
 import hudson.util.ProcessTree.OSProcess;
 import hudson.util.ProcessTreeRemoting.IOSProcess;
 import hudson.util.ProcessTreeRemoting.IProcessTree;
+import jenkins.security.SlaveToMasterCallable;
 import org.jvnet.winp.WinProcess;
 import org.jvnet.winp.WinpException;
 
@@ -57,6 +57,7 @@ import java.util.SortedMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import javax.annotation.CheckForNull;
 import static com.sun.jna.Pointer.NULL;
 import static hudson.util.jna.GNUCLibrary.LIBC;
 import static java.util.logging.Level.FINE;
@@ -150,7 +151,7 @@ public abstract class ProcessTree implements Iterable<OSProcess>, IProcessTree, 
             try {
                 VirtualChannel channelToMaster = SlaveComputer.getChannelToMaster();
                 if (channelToMaster!=null) {
-                    killers = channelToMaster.call(new Callable<List<ProcessKiller>, IOException>() {
+                    killers = channelToMaster.call(new SlaveToMasterCallable<List<ProcessKiller>, IOException>() {
                         public List<ProcessKiller> call() throws IOException {
                             return new ArrayList<ProcessKiller>(ProcessKiller.all());
                         }
@@ -227,6 +228,22 @@ public abstract class ProcessTree implements Iterable<OSProcess>, IProcessTree, 
          * the current process.
          */
         public abstract void killRecursively() throws InterruptedException;
+
+        /**
+         * @return The first non-null {@link VetoCause} provided by a process killing veto extension for this OSProcess. 
+         * null if no one objects killing the process.
+         */
+        protected @CheckForNull VetoCause getVeto() {
+            for (ProcessKillingVeto vetoExtension : ProcessKillingVeto.all()) {
+                VetoCause cause = vetoExtension.vetoProcessKilling(this);
+                if (cause != null) {
+                    if (LOGGER.isLoggable(FINEST))
+                        LOGGER.finest("Killing of pid " + getPid() + " vetoed by " + vetoExtension.getClass().getName() + ": " + cause.getMessage());
+                    return cause;
+                }
+            }
+            return null;
+        }
 
         /**
          * Gets the command-line arguments of this process.
@@ -364,6 +381,8 @@ public abstract class ProcessTree implements Iterable<OSProcess>, IProcessTree, 
                 }
 
                 public void kill() throws InterruptedException {
+                    if (getVeto() != null) 
+                        return;
                     proc.destroy();
                     killByKiller();
                 }
@@ -399,12 +418,18 @@ public abstract class ProcessTree implements Iterable<OSProcess>, IProcessTree, 
                     }
 
                     public void killRecursively() throws InterruptedException {
+                        if (getVeto() != null) 
+                            return;
+                        
                         LOGGER.finer("Killing recursively "+getPid());
                         p.killRecursively();
                         killByKiller();
                     }
 
                     public void kill() throws InterruptedException {
+                        if (getVeto() != null) 
+                            return;
+
                         LOGGER.finer("Killing "+getPid());
                         p.kill();
                         killByKiller();
@@ -538,6 +563,8 @@ public abstract class ProcessTree implements Iterable<OSProcess>, IProcessTree, 
          * Tries to kill this process.
          */
         public void kill() throws InterruptedException {
+            if (getVeto() != null) 
+                return;
             try {
                 int pid = getPid();
                 LOGGER.fine("Killing pid="+pid);
@@ -558,6 +585,7 @@ public abstract class ProcessTree implements Iterable<OSProcess>, IProcessTree, 
         }
 
         public void killRecursively() throws InterruptedException {
+            // We kill individual processes of a tree, so handling vetoes inside #kill() is enough for UnixProcess es
             LOGGER.fine("Recursively killing pid="+getPid());
             for (OSProcess p : getChildren())
                 p.killRecursively();

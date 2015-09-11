@@ -98,6 +98,13 @@ public abstract class Cause {
         }
     }
 
+    void onLoad(@Nonnull Job<?,?> job, int buildNumber) {
+        Run<?,?> build = job.getBuildByNumber(buildNumber);
+        if (build != null) {
+            onLoad(build);
+        }
+    }
+
     @Deprecated
     public void onLoad(AbstractBuild<?,?> build) {
         if (Util.isOverridden(Cause.class, getClass(), "onLoad", Run.class)) {
@@ -117,6 +124,7 @@ public abstract class Cause {
      * Fall back implementation when no other type is available.
      * @deprecated since 2009-02-08
      */
+    @Deprecated
     public static class LegacyCodeCause extends Cause {
         private StackTraceElement [] stackTrace;
         public LegacyCodeCause() {
@@ -130,7 +138,7 @@ public abstract class Cause {
     }
 
     /**
-     * A build is triggered by the completion of another build (AKA upstream build.)
+     * A build is triggered by another build (AKA upstream build.)
      */
     public static class UpstreamCause extends Cause {
 
@@ -155,6 +163,7 @@ public abstract class Cause {
          * @deprecated since 2009-02-28
          */
         // for backward bytecode compatibility
+        @Deprecated
         public UpstreamCause(AbstractBuild<?,?> up) {
             this((Run<?,?>)up);
         }
@@ -178,7 +187,7 @@ public abstract class Cause {
         }
 
         @Override
-        public void onLoad(@Nonnull Run run) {
+        public void onLoad(@Nonnull Job<?,?> _job, int _buildNumber) {
             Item i = Jenkins.getInstance().getItemByFullName(this.upstreamProject);
             if (i == null || !(i instanceof Job)) {
                 // cannot initialize upstream causes
@@ -186,14 +195,8 @@ public abstract class Cause {
             }
 
             Job j = (Job)i;
-            Run r = j.getBuildByNumber(this.getUpstreamBuild());
-            if (r == null) {
-                // build doesn't exist anymore
-                return;
-            }
-
             for (Cause c : this.upstreamCauses) {
-                c.onLoad(r);
+                c.onLoad(j, upstreamBuild);
             }
         }
 
@@ -349,6 +352,7 @@ public abstract class Cause {
             @Override public String toString() {
                 return "JENKINS-14814";
             }
+            @Override public void onLoad(@Nonnull Job<?,?> _job, int _buildNumber) {}
         }
 
     }
@@ -359,6 +363,7 @@ public abstract class Cause {
      * @deprecated 1.428
      *   use {@link UserIdCause}
      */
+    @Deprecated
     public static class UserCause extends Cause {
         private String authenticationName;
         public UserCause() {
@@ -454,6 +459,16 @@ public abstract class Cause {
                 }
             }
             return Messages.Cause_RemoteCause_ShortDescription(addr);
+        }
+        
+        @Exported(visibility = 3)
+        public String getAddr() {
+            return addr;
+        }
+        
+        @Exported(visibility = 3)
+        public String getNote() {
+            return note;
         }
 
         @Override

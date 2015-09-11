@@ -52,6 +52,7 @@ import java.util.List;
 import java.util.Map;
 
 import static hudson.Util.fixEmpty;
+import javax.annotation.CheckForNull;
 
 public class Hudson extends Jenkins {
 
@@ -59,18 +60,20 @@ public class Hudson extends Jenkins {
      * List of registered {@link hudson.model.listeners.ItemListener}s.
      * @deprecated as of 1.286
      */
+    @Deprecated
     private transient final CopyOnWriteList<ItemListener> itemListeners = ExtensionListView.createCopyOnWriteList(ItemListener.class);
 
     /**
     * List of registered {@link hudson.slaves.ComputerListener}s.
      * @deprecated as of 1.286
      */
+    @Deprecated
     private transient final CopyOnWriteList<ComputerListener> computerListeners = ExtensionListView.createCopyOnWriteList(ComputerListener.class);
 
     /** @deprecated Here only for compatibility. Use {@link Jenkins#getInstance} instead. */
     @Deprecated
     @CLIResolver
-    public static Hudson getInstance() {
+    public static @CheckForNull Hudson getInstance() {
         return (Hudson)Jenkins.getInstance();
     }
 
@@ -88,6 +91,7 @@ public class Hudson extends Jenkins {
      * @deprecated as of 1.286.
      *      Use {@link ItemListener#all()}.
      */
+    @Deprecated
     public CopyOnWriteList<ItemListener> getJobListeners() {
         return itemListeners;
     }
@@ -98,6 +102,7 @@ public class Hudson extends Jenkins {
      * @deprecated as of 1.286.
      *      Use {@link ComputerListener#all()}.
      */
+    @Deprecated
     public CopyOnWriteList<ComputerListener> getComputerListeners() {
         return computerListeners;
     }
@@ -108,6 +113,7 @@ public class Hudson extends Jenkins {
      * @deprecated
      *      Use {@link #getNode(String)}. Since 1.252.
      */
+    @Deprecated
     public Slave getSlave(String name) {
         Node n = getNode(name);
         if (n instanceof Slave)
@@ -119,8 +125,9 @@ public class Hudson extends Jenkins {
      * @deprecated
      *      Use {@link #getNodes()}. Since 1.252.
      */
+    @Deprecated
     public List<Slave> getSlaves() {
-        return (List)slaves;
+        return (List)getNodes();
     }
 
     /**
@@ -129,6 +136,7 @@ public class Hudson extends Jenkins {
      * @deprecated
      *      Use {@link #setNodes(List)}. Since 1.252.
      */
+    @Deprecated
     public void setSlaves(List<Slave> slaves) throws IOException {
         setNodes(slaves);
     }
@@ -138,6 +146,7 @@ public class Hudson extends Jenkins {
      *      Left only for the compatibility of URLs.
      *      Should not be invoked for any other purpose.
      */
+    @Deprecated
     public TopLevelItem getJob(String name) {
         return getItem(name);
     }
@@ -146,6 +155,7 @@ public class Hudson extends Jenkins {
      * @deprecated
      *      Used only for mapping jobs to URL in a case-insensitive fashion.
      */
+    @Deprecated
     public TopLevelItem getJobCaseInsensitive(String name) {
         String match = Functions.toEmailSafeString(name);
         for(TopLevelItem item : getItems()) {
@@ -160,6 +170,7 @@ public class Hudson extends Jenkins {
      * @deprecated as of 1.317
      *      Use {@link #doQuietDown()} instead.
      */
+    @Deprecated
     public synchronized void doQuietDown(StaplerResponse rsp) throws IOException, ServletException {
         doQuietDown().generateResponse(null, rsp, this);
     }
@@ -170,6 +181,7 @@ public class Hudson extends Jenkins {
      * @deprecated
      *   As on 1.267, moved to "/log/rss..."
      */
+    @Deprecated
     public void doLogRss( StaplerRequest req, StaplerResponse rsp ) throws IOException, ServletException {
         String qs = req.getQueryString();
         rsp.sendRedirect2("./log/rss"+(qs==null?"":'?'+qs));
@@ -179,6 +191,7 @@ public class Hudson extends Jenkins {
      * @deprecated as of 1.294
      *      Define your own check method, instead of relying on this generic one.
      */
+    @Deprecated
     public void doFieldCheck(StaplerRequest req, StaplerResponse rsp) throws IOException, ServletException {
         doFieldCheck(
                 fixEmpty(req.getParameter("value")),
@@ -200,6 +213,7 @@ public class Hudson extends Jenkins {
      *      Either use client-side validation (e.g. class="required number")
      *      or define your own check method, instead of relying on this generic one.
      */
+    @Deprecated
     public FormValidation doFieldCheck(@QueryParameter(fixEmpty=true) String value,
                                        @QueryParameter(fixEmpty=true) String type,
                                        @QueryParameter(fixEmpty=true) String errorText,
@@ -235,6 +249,7 @@ public class Hudson extends Jenkins {
      * @deprecated
      *      Use {@link Functions#isWindows()}.
      */
+    @Deprecated
     public static boolean isWindows() {
         return File.pathSeparatorChar==';';
     }
@@ -243,6 +258,7 @@ public class Hudson extends Jenkins {
      * @deprecated
      *      Use {@link hudson.Platform#isDarwin()}
      */
+    @Deprecated
     public static boolean isDarwin() {
         return Platform.isDarwin();
     }
@@ -251,6 +267,7 @@ public class Hudson extends Jenkins {
      * @deprecated since 2007-12-18.
      *      Use {@link #checkPermission(hudson.security.Permission)}
      */
+    @Deprecated
     public static boolean adminCheck() throws IOException {
         return adminCheck(Stapler.getCurrentRequest(), Stapler.getCurrentResponse());
     }
@@ -259,6 +276,7 @@ public class Hudson extends Jenkins {
      * @deprecated since 2007-12-18.
      *      Use {@link #checkPermission(hudson.security.Permission)}
      */
+    @Deprecated
     public static boolean adminCheck(StaplerRequest req,StaplerResponse rsp) throws IOException {
         if (isAdmin(req)) return true;
 
@@ -284,6 +302,7 @@ public class Hudson extends Jenkins {
      *      if appropriate), then identify a suitable {@link hudson.security.AccessControlled} object to check its permission
      *      against.
      */
+    @Deprecated
     public static boolean isAdmin() {
         return Jenkins.getInstance().getACL().hasPermission(ADMINISTER);
     }
@@ -293,6 +312,7 @@ public class Hudson extends Jenkins {
      *      Define a custom {@link hudson.security.Permission} and check against ACL.
      *      See {@link #isAdmin()} for more instructions.
      */
+    @Deprecated
     public static boolean isAdmin(StaplerRequest req) {
         return isAdmin();
     }
@@ -304,6 +324,7 @@ public class Hudson extends Jenkins {
     /**
      * @deprecated  only here for backward comp
      */
+    @Deprecated
     public static final class MasterComputer extends Jenkins.MasterComputer {
         // no op
     }
@@ -311,6 +332,7 @@ public class Hudson extends Jenkins {
     /**
      * @deprecated  only here for backward comp
      */
+    @Deprecated
     public static class CloudList extends Jenkins.CloudList {
         public CloudList(Jenkins h) {
             super(h);

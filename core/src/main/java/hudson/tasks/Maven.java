@@ -24,13 +24,13 @@
 package hudson.tasks;
 
 import hudson.Extension;
+import jenkins.MasterToSlaveFileCallable;
 import hudson.Launcher;
 import hudson.Functions;
 import hudson.EnvVars;
 import hudson.Util;
 import hudson.CopyOnWrite;
 import hudson.Launcher.LocalLauncher;
-import hudson.FilePath.FileCallable;
 import hudson.model.AbstractBuild;
 import hudson.model.AbstractProject;
 import hudson.model.BuildListener;
@@ -42,7 +42,6 @@ import jenkins.mvn.GlobalMavenConfig;
 import jenkins.mvn.GlobalSettingsProvider;
 import jenkins.mvn.SettingsProvider;
 import hudson.model.TaskListener;
-import hudson.remoting.Callable;
 import hudson.remoting.VirtualChannel;
 import hudson.slaves.NodeSpecific;
 import hudson.tasks._maven.MavenConsoleAnnotator;
@@ -59,6 +58,7 @@ import hudson.util.VariableResolver.ByMap;
 import hudson.util.VariableResolver.Union;
 import hudson.util.FormValidation;
 import hudson.util.XStream2;
+import jenkins.security.MasterToSlaveCallable;
 import net.sf.json.JSONObject;
 
 import org.apache.commons.lang.StringUtils;
@@ -217,7 +217,7 @@ public class Maven extends Builder {
      * Looks for <tt>pom.xlm</tt> or <tt>project.xml</tt> to determine the maven executable
      * name.
      */
-    private static final class DecideDefaultMavenCommand implements FileCallable<String> {
+    private static final class DecideDefaultMavenCommand extends MasterToSlaveFileCallable<String> {
         private static final long serialVersionUID = -2327576423452215146L;
         // command line arguments.
         private final String arguments;
@@ -322,6 +322,10 @@ public class Maven extends Builder {
             wrapUpArguments(args,normalizedTarget,build,launcher,listener);
 
             buildEnvVars(env, mi);
+            
+            if (!launcher.isUnix()) {
+                args = args.toWindowsCommand();
+            }
 
             try {
                 MavenConsoleAnnotator mca = new MavenConsoleAnnotator(listener.getLogger(),build.getCharset());
@@ -381,6 +385,7 @@ public class Maven extends Builder {
      *      For compatibility, this field retains the last created {@link DescriptorImpl}.
      *      TODO: fix sonar plugin that depends on this. That's the only plugin that depends on this field.
      */
+    @Deprecated
     public static DescriptorImpl DESCRIPTOR;
 
     @Extension
@@ -455,13 +460,14 @@ public class Maven extends Builder {
         /**
          * @deprecated since 2009-02-25.
          */
-        @Deprecated // kept for backward compatiblity - use getHome()
+        @Deprecated // kept for backward compatibility - use getHome()
         private transient String mavenHome;
 
         /**
          * @deprecated as of 1.308.
          *      Use {@link #Maven.MavenInstallation(String, String, List)}
          */
+        @Deprecated
         public MavenInstallation(String name, String home) {
             super(name, home);
         }
@@ -476,6 +482,7 @@ public class Maven extends Builder {
          *
          * @deprecated as of 1.308. Use {@link #getHome()}.
          */
+        @Deprecated
         public String getMavenHome() {
             return getHome();
         }
@@ -506,7 +513,7 @@ public class Maven extends Builder {
         public boolean meetsMavenReqVersion(Launcher launcher, int mavenReqVersion) throws IOException, InterruptedException {
             // FIXME using similar stuff as in the maven plugin could be better 
             // olamy : but will add a dependency on maven in core -> so not so good 
-            String mavenVersion = launcher.getChannel().call(new Callable<String,IOException>() {
+            String mavenVersion = launcher.getChannel().call(new MasterToSlaveCallable<String,IOException>() {
                     private static final long serialVersionUID = -4143159957567745621L;
 
                     public String call() throws IOException {
@@ -562,7 +569,7 @@ public class Maven extends Builder {
          * Gets the executable path of this maven on the given target system.
          */
         public String getExecutable(Launcher launcher) throws IOException, InterruptedException {
-            return launcher.getChannel().call(new Callable<String,IOException>() {
+            return launcher.getChannel().call(new MasterToSlaveCallable<String,IOException>() {
                 private static final long serialVersionUID = 2373163112639943768L;
 
                 public String call() throws IOException {
@@ -578,12 +585,20 @@ public class Maven extends Builder {
         }
 
         private File getExeFile(String execName) {
-            if(File.separatorChar=='\\')
-                execName += ".bat";
-
             String m2Home = Util.replaceMacro(getHome(),EnvVars.masterEnvVars);
 
-            return new File(m2Home, "bin/" + execName);
+            if(Functions.isWindows()) {
+                File exeFile = new File(m2Home, "bin/" + execName + ".bat");
+
+                // since Maven 3.3 .bat files are replaced with .cmd
+                if (!exeFile.exists()) {
+                    return new File(m2Home, "bin/" + execName + ".cmd");
+                }
+
+                return exeFile;
+            } else {
+                return new File(m2Home, "bin/" + execName);
+            }
         }
 
         /**

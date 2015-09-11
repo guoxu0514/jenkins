@@ -23,11 +23,12 @@
  */
 package hudson.model;
 
+import com.gargoylesoftware.htmlunit.WebRequest;
+import com.gargoylesoftware.htmlunit.html.DomNodeUtil;
 import jenkins.model.Jenkins;
-import org.jvnet.hudson.test.Bug;
+import org.jvnet.hudson.test.Issue;
 import com.gargoylesoftware.htmlunit.FailingHttpStatusCodeException;
 import com.gargoylesoftware.htmlunit.HttpMethod;
-import com.gargoylesoftware.htmlunit.WebRequestSettings;
 import com.gargoylesoftware.htmlunit.html.HtmlAnchor;
 import com.gargoylesoftware.htmlunit.html.HtmlForm;
 import com.gargoylesoftware.htmlunit.html.HtmlLabel;
@@ -48,9 +49,7 @@ import hudson.slaves.DumbSlave;
 import hudson.util.HudsonIsLoading;
 import java.io.File;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.List;
 import static org.junit.Assert.*;
 import org.junit.Ignore;
 import org.junit.Rule;
@@ -67,7 +66,7 @@ public class ViewTest {
 
     @Rule public JenkinsRule j = new JenkinsRule();
 
-    @Bug(7100)
+    @Issue("JENKINS-7100")
     @Test public void xHudsonHeader() throws Exception {
         assertNotNull(j.createWebClient().goTo("").getWebResponse().getResponseHeaderValue("X-Hudson"));
     }
@@ -100,7 +99,7 @@ public class ViewTest {
 
         WebClient wc = j.createWebClient();
         HtmlPage userPage = wc.goTo("user/me");
-        HtmlAnchor privateViewsLink = userPage.getFirstAnchorByText("My Views");
+        HtmlAnchor privateViewsLink = userPage.getAnchorByText("My Views");
         assertNotNull("My Views link not available", privateViewsLink);
 
         HtmlPage privateViewsPage = (HtmlPage) privateViewsLink.click();
@@ -144,7 +143,7 @@ public class ViewTest {
 
     }
 
-    @Bug(9367)
+    @Issue("JENKINS-9367")
     @Test public void persistence() throws Exception {
         ListView view = listView("foo");
 
@@ -153,15 +152,15 @@ public class ViewTest {
         assertNotNull(v.getProperties());
     }
 
-    @Bug(9367)
+    @Issue("JENKINS-9367")
     @Test public void allImagesCanBeLoaded() throws Exception {
         User.get("user", true);
         WebClient webClient = j.createWebClient();
-        webClient.setJavaScriptEnabled(false);
+        webClient.getOptions().setJavaScriptEnabled(false);
         j.assertAllImageLoadSuccessfully(webClient.goTo("asynchPeople"));
     }
 
-    @Bug(16608)
+    @Issue("JENKINS-16608")
     @Test public void notAllowedName() throws Exception {
         HtmlForm form = j.createWebClient().goTo("newView").getFormByName("createItem");
         form.getInputByName("name").setValueAttribute("..");
@@ -176,7 +175,7 @@ public class ViewTest {
     }
 
     @Ignore("verified manually in Winstone but org.mortbay.JettyResponse.sendRedirect (6.1.26) seems to mangle the location")
-    @Bug(18373)
+    @Issue("JENKINS-18373")
     @Test public void unicodeName() throws Exception {
         HtmlForm form = j.createWebClient().goTo("newView").getFormByName("createItem");
         String name = "I ♥ NY";
@@ -188,7 +187,7 @@ public class ViewTest {
         j.submit(j.createWebClient().getPage(view, "configure").getFormByName("viewConfig"));
     }
 
-    @Bug(17302)
+    @Issue("JENKINS-17302")
     @Test public void doConfigDotXml() throws Exception {
         ListView view = listView("v");
         view.description = "one";
@@ -196,8 +195,9 @@ public class ViewTest {
         String xml = wc.goToXml("view/v/config.xml").getContent();
         assertTrue(xml, xml.contains("<description>one</description>"));
         xml = xml.replace("<description>one</description>", "<description>two</description>");
-        WebRequestSettings req = new WebRequestSettings(wc.createCrumbedUrl("view/v/config.xml"), HttpMethod.POST);
+        WebRequest req = new WebRequest(wc.createCrumbedUrl("view/v/config.xml"), HttpMethod.POST);
         req.setRequestBody(xml);
+        req.setEncodingType(null);
         wc.getPage(req);
         assertEquals("two", view.getDescription());
         xml = new XmlFile(Jenkins.XSTREAM, new File(j.jenkins.getRootDir(), "config.xml")).asString();
@@ -304,7 +304,7 @@ public class ViewTest {
     }
 
     @Test
-    @Bug(21474)
+    @Issue("JENKINS-21474")
     public void testGetComputersNPE() throws Exception {
         ListView view = listView("aView");
         view.filterExecutors = true;
@@ -362,7 +362,7 @@ public class ViewTest {
         ListView view2 = listView("foo");
         try{
             view2.rename("renamed");
-            fail("Attemt to rename job with a name used by another view with the same owner should throw exception");
+            fail("Attempt to rename job with a name used by another view with the same owner should throw exception");
         }
         catch(Exception Exception){
         }
@@ -401,7 +401,7 @@ public class ViewTest {
         View view = listView("foo");
         Thread.sleep(100000);
         HtmlForm f = j.createWebClient().getPage(view, "configure").getFormByName("viewConfig");
-        ((HtmlLabel)f.selectSingleNode(".//LABEL[text()='Test property']")).click();
+        ((HtmlLabel) DomNodeUtil.selectSingleNode(f, ".//LABEL[text()='Test property']")).click();
         j.submit(f);
         assertNotNull("View should contains ViewPropertyImpl property.", view.getProperties().get(PropertyImpl.class));
     }

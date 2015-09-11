@@ -25,6 +25,7 @@ package hudson.model;
 
 import com.gargoylesoftware.htmlunit.FailingHttpStatusCodeException;
 import com.gargoylesoftware.htmlunit.WebAssert;
+import com.gargoylesoftware.htmlunit.html.HtmlFormUtil;
 import com.gargoylesoftware.htmlunit.html.HtmlPage;
 import com.gargoylesoftware.htmlunit.TextPage;
 
@@ -39,7 +40,7 @@ import jenkins.model.ProjectNamingStrategy;
 import static org.junit.Assert.*;
 import org.junit.Rule;
 import org.junit.Test;
-import org.jvnet.hudson.test.Bug;
+import org.jvnet.hudson.test.Issue;
 import org.jvnet.hudson.test.FailureBuilder;
 import org.jvnet.hudson.test.JenkinsRule;
 import org.jvnet.hudson.test.RunLoadCounter;
@@ -211,7 +212,7 @@ public class JobTest {
         // But it posts invalid data so we expect 500 if we have permission, 403 if not
         HtmlPage page = wc.goTo("userContent/post.html");
         try {
-            page.getForms().get(0).submit();
+            HtmlFormUtil.submit(page.getForms().get(0));
             fail("Expected exception: " + msg);
         } catch (FailingHttpStatusCodeException expected) {
             assertEquals(msg, status, expected.getStatusCode());
@@ -219,7 +220,7 @@ public class JobTest {
         wc.goTo("logout");
     }
 
-    @LocalData @Bug(6371)
+    @LocalData @Issue("JENKINS-6371")
     @Test public void getArtifactsUpTo() throws Exception {
         // There was a bug where intermediate directories were counted,
         // so too few artifacts were returned.
@@ -230,7 +231,7 @@ public class JobTest {
         assertEquals(1, r.getArtifactsUpTo(1).size());
     }
 
-    @Bug(10182)
+    @Issue("JENKINS-10182")
     @Test public void emptyDescriptionReturnsEmptyPage() throws Exception {
         // A NPE was thrown if a job had a null (empty) description.
         JenkinsRule.WebClient wc = j.createWebClient();
@@ -257,7 +258,7 @@ public class JobTest {
         j.createFreeStyleProject("project");
     }
 
-    @Bug(16023)
+    @Issue("JENKINS-16023")
     @Test public void getLastFailedBuild() throws Exception {
         final FreeStyleProject p = j.createFreeStyleProject();
         RunLoadCounter.prepare(p);
@@ -275,6 +276,14 @@ public class JobTest {
                 return p.getLastFailedBuild().getNumber();
             }
         }).intValue());
+    }
+
+    @Issue("JENKINS-19764")
+    @Test public void testRenameWithCustomBuildsDirWithSubdir() throws Exception {
+        j.jenkins.setRawBuildsDir("${JENKINS_HOME}/builds/${ITEM_FULL_NAME}/builds");
+        final FreeStyleProject p = j.createFreeStyleProject();
+        p.scheduleBuild2(0).get();
+        p.renameTo("different-name");
     }
 
 }

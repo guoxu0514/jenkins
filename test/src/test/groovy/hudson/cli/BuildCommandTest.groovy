@@ -32,7 +32,7 @@ import hudson.Extension
 
 import org.junit.Rule
 import org.junit.Test
-import org.jvnet.hudson.test.Bug
+import org.jvnet.hudson.test.Issue
 import org.jvnet.hudson.test.CaptureEnvironmentBuilder
 import org.jvnet.hudson.test.JenkinsRule
 import org.jvnet.hudson.test.RandomlyFails
@@ -167,7 +167,7 @@ public class BuildCommandTest {
             def o = new ByteArrayOutputStream()
             cli.execute(["build","-s","-v",p.name],System.in,new TeeOutputStream(System.out,o),System.err)
             j.assertBuildStatusSuccess(p.getBuildByNumber(1))
-            assertTrue(o.toString(), o.toString().contains("Started by command line by anonymous"))
+            assertTrue(o.toString(), o.toString().contains("Started from command line by anonymous"))
             assertTrue(o.toString().contains("Finished: SUCCESS"))
         } finally {
             cli.close()
@@ -232,7 +232,7 @@ public class BuildCommandTest {
         assertEquals("a=b", project.getBuildByNumber(1).getBuildVariables().get("expr"));
     }
     
-    @Bug(15094)
+    @Issue("JENKINS-15094")
     @Test public void executorsAliveOnParameterWithNullDefaultValue() throws Exception {    
         def slave = j.createSlave();
         FreeStyleProject project = j.createFreeStyleProject("foo");

@@ -52,6 +52,13 @@ import org.kohsuke.stapler.DataBoundConstructor;
  * @author Kohsuke Kawaguchi
  */
 public final class JDK extends ToolInstallation implements NodeSpecific<JDK>, EnvironmentSpecific<JDK> {
+
+    /**
+     * Name of the “default JDK”, meaning no specific JDK selected.
+     * @since 1.577
+     */
+    public static final String DEFAULT_NAME = "(Default)";
+
     /**
      * @deprecated since 2009-02-25
      */
@@ -73,6 +80,7 @@ public final class JDK extends ToolInstallation implements NodeSpecific<JDK>, En
      * @deprecated as of 1.304
      *      Use {@link #getHome()}
      */
+    @Deprecated
     public String getJavaHome() {
         return getHome();
     }
@@ -101,6 +109,7 @@ public final class JDK extends ToolInstallation implements NodeSpecific<JDK>, En
     /**
      * @deprecated as of 1.460. Use {@link #buildEnvVars(EnvVars)}
      */
+    @Deprecated
     public void buildEnvVars(Map<String,String> env) {
         String home = getHome();
         if (home == null) {
@@ -157,11 +166,8 @@ public final class JDK extends ToolInstallation implements NodeSpecific<JDK>, En
             return Jenkins.getInstance().getJDKs().toArray(new JDK[0]);
         }
 
-        // this isn't really synchronized well since the list is Hudson.jdks :(
-        public @Override synchronized void setInstallations(JDK... jdks) {
-            List<JDK> list = Jenkins.getInstance().getJDKs();
-            list.clear();
-            list.addAll(Arrays.asList(jdks));
+        public @Override void setInstallations(JDK... jdks) {
+            Jenkins.getInstance().setJDKs(Arrays.asList(jdks));
         }
 
         @Override
@@ -175,7 +181,11 @@ public final class JDK extends ToolInstallation implements NodeSpecific<JDK>, En
         @Override protected FormValidation checkHomeDirectory(File value) {
             File toolsJar = new File(value,"lib/tools.jar");
             File mac = new File(value,"lib/dt.jar");
-            if(!toolsJar.exists() && !mac.exists())
+
+            // JENKINS-25601: JDK 9+ no longer has tools.jar. Keep the existing dt.jar/tools.jar checks to be safe.
+            File javac = new File(value, "bin/javac");
+            File javacExe = new File(value, "bin/javac.exe");
+            if(!toolsJar.exists() && !mac.exists() && !javac.exists() && !javacExe.exists())
                 return FormValidation.error(Messages.Hudson_NotJDKDir(value));
 
             return FormValidation.ok();

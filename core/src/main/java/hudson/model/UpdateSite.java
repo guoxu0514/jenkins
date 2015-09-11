@@ -174,9 +174,7 @@ public class UpdateSite {
      * This is the endpoint that receives the update center data file from the browser.
      */
     public FormValidation doPostBack(StaplerRequest req) throws IOException, GeneralSecurityException {
-        if (!DownloadSettings.get().isUseBrowser()) {
-            throw new IOException("not allowed");
-        }
+        DownloadSettings.checkPostBackAccess();
         return updateData(IOUtils.toString(req.getInputStream(),"UTF-8"), true);
     }
 
@@ -218,7 +216,16 @@ public class UpdateSite {
      * Verifies the signature in the update center data file.
      */
     private FormValidation verifySignature(JSONObject o) throws IOException {
-        return new JSONSignatureValidator("update site '"+id+"'").verifySignature(o);
+        return getJsonSignatureValidator().verifySignature(o);
+    }
+
+    /**
+     * Let sub-classes of UpdateSite provide their own signature validator.
+     * @return the signature validator.
+     */
+    @Nonnull
+    protected JSONSignatureValidator getJsonSignatureValidator() {
+        return new JSONSignatureValidator("update site '"+id+"'");
     }
 
     /**
@@ -399,6 +406,7 @@ public class UpdateSite {
      * @deprecated
      *      Exposed only for UI.
      */
+    @Deprecated
     public String getDownloadUrl() {
         /*
             HACKISH:
@@ -761,6 +769,7 @@ public class UpdateSite {
          * @deprecated as of 1.326
          *      Use {@link #deploy()}.
          */
+        @Deprecated
         public void install() {
             deploy();
         }

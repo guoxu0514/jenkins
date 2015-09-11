@@ -105,10 +105,18 @@ THE SOFTWARE.
       -->
       <j:set var="iconMetadata" value="${icons.getIconByClassSpec(attrs.icon)}"/>
       <j:if test="${iconMetadata == null}">
-        <j:set var="iconMetadata" value="${icons.getIconByUrl(icon)}"/>
+        <!-- Icon could be provided as a simple iconFileName e.g. "settings.png" -->
+        <j:set var="iconMetadata" value="${icons.getIconByClassSpec(icons.toNormalizedIconNameClass(attrs.icon) + ' icon-md')}"/>
+      </j:if>
+      <j:if test="${iconMetadata == null}">
+        <!-- Icon could be provided as an absolute iconFileName e.g. "/plugin/foo/abc.png" -->
+        <j:set var="iconMetadata" value="${icons.getIconByUrl(attrs.icon)}"/>
       </j:if>
 
-      <j:set var="icon" value="${rootURL}${icon.startsWith('images/') || icon.startsWith('plugin/') ? h.resourcePath : ''}/${icon}"/>
+      <j:if test="${!icon.startsWith('/')}">
+        <j:set var="icon" value="/${icon}"/>
+      </j:if>
+      <j:set var="icon" value="${rootURL}${icon.startsWith('/images/') || icon.startsWith('/plugin/') ? h.resourcePath : ''}${icon}"/>
       <j:when test="${enabled==false}">
         <div class="task disabled">
           <span>
@@ -199,7 +207,7 @@ THE SOFTWARE.
               </l:confirmationLink>
             </j:when>
             <j:otherwise>
-              <a href="${href}" class="task-link" onclick="${attrs.onclick ?: (post ? 'postRequest_' + id + '(this)' : null)}">
+              <a href="${href}" class="task-link" onclick="${attrs.onclick ?: (post ? 'return postRequest_' + id + '(this)' : null)}">
                 <j:choose>
                   <j:when test="${match}">
                     <b>${title}</b>
